@@ -1,0 +1,22 @@
+{
+ "Count": 4,
+ "Message": "Results returned successfully",
+ "Results": [
+  {
+   "VehicleDescription": "2024 Toyota TUNDRA PU/CC 4WD",
+   "VehicleId": 19457
+  },
+  {
+   "VehicleDescription": "2024 Toyota TUNDRA PU/CC 2WD",
+   "VehicleId": 19456
+  },
+  {
+   "VehicleDescription": "2024 Toyota TUNDRA PU/EC 4WD",
+   "VehicleId": 19455
+  },
+  {
+   "VehicleDescription": "2024 Toyota TUNDRA PU/EC 2WD",
+   "VehicleId": 19454
+  }
+ ]
+}

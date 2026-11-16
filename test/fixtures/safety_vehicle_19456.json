@@ -1,0 +1,41 @@
+{
+ "Count": 1,
+ "Message": "Results returned successfully",
+ "Results": [
+  {
+   "OverallRating": "Not Rated",
+   "OverallFrontCrashRating": "5",
+   "FrontCrashDriversideRating": "5",
+   "FrontCrashPassengersideRating": "5",
+   "FrontCrashPicture": "https://static.nhtsa.gov/crashTest/images/2024/v14248P086.jpg",
+   "FrontCrashVideo": "https://static.nhtsa.gov/crashTest/videos/2024/v14248C019.wmv",
+   "OverallSideCrashRating": "5",
+   "SideCrashDriversideRating": "5",
+   "SideCrashPassengersideRating": "5",
+   "SideCrashPicture": "https://static.nhtsa.gov/crashTest/images/2024/v14253P091.jpg",
+   "SideCrashVideo": "https://static.nhtsa.gov/crashTest/videos/2024/v14253C013.wmv",
+   "combinedSideBarrierAndPoleRating-Front": "5",
+   "combinedSideBarrierAndPoleRating-Rear": "5",
+   "sideBarrierRating-Overall": "5",
+   "RolloverRating": "Not Rated",
+   "RolloverRating2": "Not Rated",
+   "RolloverPossibility": 0.0,
+   "RolloverPossibility2": 0.0,
+   "dynamicTipResult": " ",
+   "SidePoleCrashRating": "5",
+   "SidePolePicture": "https://static.nhtsa.gov/crashTest/images/2024/v14254P074.jpg",
+   "SidePoleVideo": "https://static.nhtsa.gov/crashTest/videos/2024/v14254C011.wmv",
+   "NHTSAElectronicStabilityControl": "Standard",
+   "NHTSAForwardCollisionWarning": "Standard",
+   "NHTSALaneDepartureWarning": "Standard",
+   "ComplaintsCount": 358,
+   "RecallsCount": 10,
+   "InvestigationCount": 0,
+   "ModelYear": 2024,
+   "Make": "TOYOTA",
+   "Model": "TUNDRA",
+   "VehicleDescription": "2024 Toyota TUNDRA PU/CC 2WD",
+   "VehicleId": 19456
+  }
+ ]
+}

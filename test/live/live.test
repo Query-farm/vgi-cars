@@ -1,0 +1,46 @@
+# name: test/live/live.test
+# description: Opt-in checks against the live EPA and NHTSA services (make live-check). Never run by make check.
+# group: [cars-live]
+
+require-env CARS_WORKER
+
+statement ok
+LOAD vgi;
+
+statement ok
+ATTACH 'cars' (TYPE vgi, LOCATION '{CARS_WORKER}');
+
+query I
+SELECT count(*) > 40000 FROM cars.main.vehicles();
+----
+true
+
+query T
+SELECT cars.main.decode_vin('1HGCM82633A004352').make;
+----
+HONDA
+
+query I
+SELECT count(*) > 0 FROM cars.main.recalls('honda', 'accord', 2003);
+----
+true
+
+query I
+SELECT count(*) > 0 FROM cars.main.complaints('honda', 'accord', 2003);
+----
+true
+
+query I
+SELECT max(overall_rating) FROM cars.main.safety_ratings('honda', 'accord', 2020);
+----
+5
+
+query I
+SELECT count(*) > 100 FROM cars.main.makes(vehicle_type := 'car');
+----
+true
+
+query I
+SELECT count(*) > 10 FROM cars.main.models('honda', year := 2020);
+----
+true

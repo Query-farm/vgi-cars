@@ -1,4 +1,4 @@
-"""Shared fixtures: a worker client and the local mock API."""
+"""Shared fixtures: a worker client and the local fixture server."""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture(scope="session")
 def client() -> Iterator[Client]:
     """A client that launches the worker as a subprocess, the way DuckDB does."""
-    with Client([sys.executable, "-m", "starter_worker.worker"]) as c:
+    with Client([sys.executable, "-m", "cars_worker.worker"]) as c:
         yield c
 
 
 @pytest.fixture(scope="session")
 def mock_api() -> Iterator[str]:
-    """Start test/mock_api/server.py on a free port and return its base URL."""
+    """Start test/mock_api/server.py (recorded EPA/NHTSA fixtures) on a free port and return its base URL."""
     proc = subprocess.Popen(
         [sys.executable, str(ROOT / "test" / "mock_api" / "server.py")],
         stdout=subprocess.PIPE,

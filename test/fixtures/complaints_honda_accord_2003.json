@@ -1,0 +1,138 @@
+{
+ "count": 6,
+ "message": "Results returned successfully",
+ "results": [
+  {
+   "odiNumber": 11729508,
+   "manufacturer": "Honda (American Honda Motor Co.)",
+   "crash": false,
+   "fire": false,
+   "numberOfInjuries": 0,
+   "numberOfDeaths": 0,
+   "dateOfIncident": "04/02/2026",
+   "dateComplaintFiled": "04/06/2026",
+   "vin": "JHMCM56343C",
+   "components": "ELECTRICAL SYSTEM,AIR BAGS,UNKNOWN OR OTHER",
+   "summary": "I brought my vehicle to a Honda dealership for a safety recall repair (airbag/SRS related). After the repair, the SRS warning light appeared on my dashboard, indicating a potential safety issue with the airbag system. This issue was not present before the recall repair. It appeared shortly after the dealership completed the service. I contacted the dealership multiple times, but they have not responded or provided any assistance. This is a serious safety concern because the airbag system may not function properly in the event of an accident. I believe the recall repair was performed improperly, creating a new safety risk. I am requesting an investigation into this issue.",
+   "products": [
+    {
+     "type": "Vehicle",
+     "productYear": "2003",
+     "productMake": "HONDA",
+     "productModel": "ACCORD",
+     "manufacturer": "Honda (American Honda Motor Co.)"
+    }
+   ]
+  },
+  {
+   "odiNumber": 11688957,
+   "manufacturer": "Honda (American Honda Motor Co.)",
+   "crash": false,
+   "fire": false,
+   "numberOfInjuries": 0,
+   "numberOfDeaths": 0,
+   "dateOfIncident": "11/13/2023",
+   "dateComplaintFiled": "09/22/2025",
+   "vin": "1HGCM56453A",
+   "components": "STEERING,POWER TRAIN,ELECTRICAL SYSTEM",
+   "summary": "The contact owns a 2003 Honda Accord. The contact stated that there were several mechanical failures with the vehicle. The contact stated that there was a failure with the ignition switch, and the key could not be removed from the cylinder, and the shift lever failed to shift into drive(D), park(P), or into reverse(R). The contact stated that while the vehicle was in drive(D), the drive(D) indicator was flashing. Additionally, the contact had been having a failure of the power steering assist. The contact stated that the steering wheel was difficult to turn to the left or to the right. The contact was unaware of any warning lights during the power steering failure. The contact stated that the power steering failure was recurring. There was also a failure with the transmission. The contact stated that after being able to shift to drive(D), and depressing the accelerator pedal, the vehicle hesitated before responding. The contact stated that while driving at various speeds, the vehicle was shaking abnormally and hesitating. There was no warning light illuminated. The contact had not taken the vehicle to a local dealer or independent mechanic to be diagnosed or repaired. The contact researched online and found several recalls related to the failures. The manufacturer was informed of the failure, and the contact was advised that two previous recall repairs were completed for the air bags and the ignition, but the VIN was no longer under recall. The failure mileage was approximately 230,000.",
+   "products": [
+    {
+     "type": "Vehicle",
+     "productYear": "2003",
+     "productMake": "HONDA",
+     "productModel": "ACCORD",
+     "manufacturer": "Honda (American Honda Motor Co.)"
+    }
+   ]
+  },
+  {
+   "odiNumber": 11746949,
+   "manufacturer": "Honda (American Honda Motor Co.)",
+   "crash": true,
+   "fire": false,
+   "numberOfInjuries": 1,
+   "numberOfDeaths": 0,
+   "dateOfIncident": "06/18/2026",
+   "dateComplaintFiled": "06/27/2026",
+   "vin": "JHMCM56323C",
+   "components": "AIR BAGS",
+   "summary": "The vehicle was rear-ended on I-5 in Seattle Washington.  The impact drove the subject car into the car in front of it. The front passenger airbag deployed (no occupant). The front driver airbag did not deploy, resulting in the driver hitting their nose and forehead on the steering wheel.  The driver sustained relatively minor nose bruising and possibly a mild concussion. (Note, airbag recall had been performed on this vehicle)",
+   "products": [
+    {
+     "type": "Vehicle",
+     "productYear": "2003",
+     "productMake": "HONDA",
+     "productModel": "ACCORD",
+     "manufacturer": "Honda (American Honda Motor Co.)"
+    }
+   ]
+  },
+  {
+   "odiNumber": 11740104,
+   "manufacturer": "Honda (American Honda Motor Co.)",
+   "crash": false,
+   "fire": false,
+   "numberOfInjuries": 0,
+   "numberOfDeaths": 0,
+   "dateOfIncident": "05/22/2026",
+   "dateComplaintFiled": "05/26/2026",
+   "vin": "1HGCM66533A",
+   "components": "AIR BAGS",
+   "summary": "The contact owns a 2003 Honda Accord. The contact stated while attempting to start the vehicle, the contact noticed an unusual sound and the front passenger's side air bag deployed. In addition, the contact stated that the front windshield cracked. The vehicle was taken to the dealer where it was diagnosed with a failed SRS control unit. The contact was informed that the SRS control unit needed to be replaced. The vehicle was not repaired. The manufacturer was not made aware of the failure. The failure mileage was approximately 108,000.",
+   "products": [
+    {
+     "type": "Vehicle",
+     "productYear": "2003",
+     "productMake": "HONDA",
+     "productModel": "ACCORD",
+     "manufacturer": "Honda (American Honda Motor Co.)"
+    }
+   ]
+  },
+  {
+   "odiNumber": 11729508,
+   "manufacturer": "Honda (American Honda Motor Co.)",
+   "crash": false,
+   "fire": false,
+   "numberOfInjuries": 0,
+   "numberOfDeaths": 0,
+   "dateOfIncident": "04/02/2026",
+   "dateComplaintFiled": "04/06/2026",
+   "vin": "JHMCM56343C",
+   "components": "ELECTRICAL SYSTEM,AIR BAGS,UNKNOWN OR OTHER",
+   "summary": "I brought my vehicle to a Honda dealership for a safety recall repair (airbag/SRS related). After the repair, the SRS warning light appeared on my dashboard, indicating a potential safety issue with the airbag system. This issue was not present before the recall repair. It appeared shortly after the dealership completed the service. I contacted the dealership multiple times, but they have not responded or provided any assistance. This is a serious safety concern because the airbag system may not function properly in the event of an accident. I believe the recall repair was performed improperly, creating a new safety risk. I am requesting an investigation into this issue.",
+   "products": [
+    {
+     "type": "Vehicle",
+     "productYear": "2003",
+     "productMake": "HONDA",
+     "productModel": "ACCORD",
+     "manufacturer": "Honda (American Honda Motor Co.)"
+    }
+   ]
+  },
+  {
+   "odiNumber": 11719786,
+   "manufacturer": "Honda (American Honda Motor Co.)",
+   "crash": false,
+   "fire": false,
+   "numberOfInjuries": 0,
+   "numberOfDeaths": 0,
+   "dateOfIncident": "02/04/2026",
+   "dateComplaintFiled": "02/23/2026",
+   "vin": "1hgcm72603a",
+   "components": "ELECTRICAL SYSTEM,SERVICE BRAKES",
+   "summary": "My break starts seizing up for no reason just out of the blue and a mechanics can't seem to find them problem, which led to my brake light constantly being on.",
+   "products": [
+    {
+     "type": "Vehicle",
+     "productYear": "2003",
+     "productMake": "HONDA",
+     "productModel": "ACCORD",
+     "manufacturer": "Honda (American Honda Motor Co.)"
+    }
+   ]
+  }
+ ]
+}

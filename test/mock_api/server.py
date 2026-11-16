@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
-# managed-by: vgi-starters (edit upstream in shared/, then run tools/render.py)
-"""A tiny, dependency-free paginated JSON API used by the tests.
+"""Offline stand-in for fueleconomy.gov, vpic.nhtsa.dot.gov and api.nhtsa.gov.
 
-``fetch_items`` (the example REST table function) is tested against this
-server, so the suite stays deterministic and runs offline.
+Serves the recorded responses in ``test/fixtures`` on the same paths as the real
+services, so the worker is pointed at it with ATTACH options::
 
-Endpoints
----------
-``GET /items?page=<n>&page_size=<m>``
-    Returns ``{"items": [...], "next_page": <n+1 or null>}`` over a fixed set
-    of 25 items.
-``GET /health``
-    Returns ``{"status": "ok"}``.
+    EPA_VEHICLES_URL '<base>/feg/epadata/vehicles.csv.zip'
+    VPIC_BASE_URL    '<base>/api'
+    NHTSA_BASE_URL   '<base>'
+
+Unknown vehicles get the same answer the real APIs give (HTTP 400 with an empty
+result list on api.nhtsa.gov, an empty list on vPIC).
 
 Behaviour switches
 ------------------
-* ``MOCK_API_TOKEN`` env var: if set, every ``/items`` request must send
-  ``Authorization: Bearer <token>`` or it gets a 401.
-* ``MOCK_API_FLAKY=1`` env var (or ``?flaky=1``): the first request for each
-  page returns ``429`` with ``Retry-After: 0``, exercising the client's retry
-  path.
+* ``MOCK_API_FLAKY=1``: the first request for each distinct path returns ``429``
+  with ``Retry-After: 0``, exercising the client's retry path.
+* The bulk file is served with an ``ETag`` and honours ``If-None-Match`` (304).
 
 Usage::
 
     python3 test/mock_api/server.py            # prints PORT:<n> once listening
-    python3 test/mock_api/server.py --port 8765
 """
 
 from __future__ import annotations
@@ -33,82 +28,134 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
-CATEGORIES = ("hardware", "software", "service")
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+ZIP_ETAG = '"fixture-vehicles-1"'
 
-ITEMS = [
-    {
-        "id": i,
-        "name": f"item-{i:02d}",
-        "category": CATEGORIES[i % 3],
-        "price": round(1.5 * i, 2),
-    }
-    for i in range(1, 26)
-]
-
-_flaky_seen: set[tuple[int, int]] = set()
+_flaky_seen: set[str] = set()
 _flaky_lock = threading.Lock()
 
 
+def _fixture(name: str) -> object:
+    return json.loads((FIXTURES / name).read_text())
+
+
+def _slug(*parts: str) -> str:
+    return "_".join(re.sub(r"[^a-z0-9]+", "-", p.strip().lower()).strip("-") for p in parts)
+
+
 class Handler(BaseHTTPRequestHandler):
-    """Serve ``/items`` pages and ``/health``."""
+    """Route the real services' paths to fixture files."""
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - stdlib signature
         """Log to stderr only, so stdout carries nothing except the ``PORT:`` line."""
         sys.stderr.write("mock_api: " + (format % args) + "\n")
 
-    def _send(self, status: int, body: object, headers: dict[str, str] | None = None) -> None:
-        payload = json.dumps(body).encode()
+    def _send(self, status: int, body: object | bytes, headers: dict[str, str] | None = None) -> None:
+        payload = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/zip" if isinstance(body, bytes) else "application/json")
         self.send_header("Content-Length", str(len(payload)))
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_GET(self) -> None:
-        """Handle GET requests."""
-        url = urlparse(self.path)
-        if url.path == "/health":
-            self._send(200, {"status": "ok"})
+    def _flaky(self) -> bool:
+        if os.environ.get("MOCK_API_FLAKY") != "1":
+            return False
+        with _flaky_lock:
+            if self.path in _flaky_seen:
+                return False
+            _flaky_seen.add(self.path)
+        self._send(429, {"error": "slow down"}, {"Retry-After": "0"})
+        return True
+
+    def do_POST(self) -> None:
+        """vPIC DecodeVINValuesBatch."""
+        if self._flaky():
             return
-        if url.path != "/items":
+        url = urlparse(self.path)
+        if url.path.rstrip("/") != "/api/vehicles/DecodeVINValuesBatch":
             self._send(404, {"error": "not found"})
             return
+        length = int(self.headers.get("Content-Length") or 0)
+        form = parse_qs(self.rfile.read(length).decode())
+        recorded = _fixture("vpic_decode.json")
+        assert isinstance(recorded, dict)
+        results = []
+        for item in form.get("data", [""])[0].split(";"):
+            vin = item.split(",")[0].strip().upper()
+            hit = recorded["by_vin_year"].get(item.strip().upper()) or recorded["by_vin"].get(vin)
+            if hit is None:
+                hit = {**recorded["by_vin"]["BADVIN"], "VIN": vin}
+            results.append(hit)
+        self._send(200, {"Count": len(results), "Message": recorded["Message"], "Results": results})
 
-        token = os.environ.get("MOCK_API_TOKEN")
-        if token and self.headers.get("Authorization") != f"Bearer {token}":
-            self._send(401, {"error": "missing or invalid bearer token"})
+    def do_GET(self) -> None:
+        """Route GET requests."""
+        url = urlparse(self.path)
+        path = unquote(url.path)
+        query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if path == "/health":
+            self._send(200, {"status": "ok"})
             return
-
-        query = parse_qs(url.query)
-        try:
-            page = int(query.get("page", ["1"])[0])
-            page_size = int(query.get("page_size", ["10"])[0])
-        except ValueError:
-            self._send(400, {"error": "page and page_size must be integers"})
+        if self._flaky():
             return
-        if page < 1 or not 1 <= page_size <= 1000:
-            self._send(400, {"error": "page must be >= 1 and page_size in [1, 1000]"})
+        if path == "/feg/epadata/vehicles.csv.zip":
+            if self.headers.get("If-None-Match") == ZIP_ETAG:
+                self.send_response(304)
+                self.end_headers()
+                return
+            self._send(200, (FIXTURES / "vehicles.csv.zip").read_bytes(), {"ETag": ZIP_ETAG})
             return
-
-        if os.environ.get("MOCK_API_FLAKY") == "1" or query.get("flaky", ["0"])[0] == "1":
-            with _flaky_lock:
-                key = (page, page_size)
-                if key not in _flaky_seen:
-                    _flaky_seen.add(key)
-                    self._send(429, {"error": "slow down"}, {"Retry-After": "0"})
-                    return
-
-        start = (page - 1) * page_size
-        chunk = ITEMS[start : start + page_size]
-        next_page = page + 1 if start + page_size < len(ITEMS) else None
-        self._send(200, {"items": chunk, "next_page": next_page})
+        if path == "/feg/epadata/broken.csv.zip":
+            self._send(200, b"this is not a zip file")
+            return
+        if path == "/api/vehicles/GetAllMakes":
+            self._send(200, _fixture("vpic_all_makes.json"))
+            return
+        match = re.fullmatch(r"/api/vehicles/GetMakesForVehicleType/(.+)", path)
+        if match:
+            name = f"vpic_makes_{_slug(match.group(1))}.json"
+            self._send(200, _fixture(name) if (FIXTURES / name).exists() else {"Count": 0, "Results": []})
+            return
+        match = re.fullmatch(r"/api/vehicles/GetModelsForMake/(.+)", path)
+        if match:
+            name = f"vpic_models_{_slug(match.group(1))}.json"
+            self._send(200, _fixture(name) if (FIXTURES / name).exists() else {"Count": 0, "Results": []})
+            return
+        match = re.fullmatch(r"/api/vehicles/GetModelsForMakeYear/make/(.+)/modelyear/(\d+)(?:/vehicletype/.+)?", path)
+        if match:
+            name = f"vpic_models_{_slug(match.group(1), match.group(2))}.json"
+            self._send(200, _fixture(name) if (FIXTURES / name).exists() else {"Count": 0, "Results": []})
+            return
+        if path in ("/recalls/recallsByVehicle", "/complaints/complaintsByVehicle"):
+            kind = "recalls" if path.startswith("/recalls") else "complaints"
+            name = f"{kind}_{_slug(query.get('make', ''), query.get('model', ''), query.get('modelYear', ''))}.json"
+            if (FIXTURES / name).exists():
+                self._send(200, _fixture(name))
+            else:
+                key = "Count" if kind == "recalls" else "count"
+                self._send(400, {key: 0, "message": "Results returned successfully", "results": []})
+            return
+        match = re.fullmatch(r"/SafetyRatings/modelyear/(\d+)/make/(.+)/model/(.+)", path)
+        if match:
+            name = f"safety_list_{_slug(match.group(1), match.group(2), match.group(3))}.json"
+            self._send(200, _fixture(name) if (FIXTURES / name).exists() else {"Count": 0, "Results": []})
+            return
+        match = re.fullmatch(r"/SafetyRatings/VehicleId/(\d+)", path)
+        if match:
+            name = f"safety_vehicle_{match.group(1)}.json"
+            self._send(200, _fixture(name) if (FIXTURES / name).exists() else {"Count": 0, "Results": []})
+            return
+        self._send(404, {"error": f"no fixture route for {path}"})
 
 
 def main() -> None:

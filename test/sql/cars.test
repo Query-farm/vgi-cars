@@ -1,0 +1,317 @@
+# name: test/sql/cars.test
+# description: SQL-level tests for the cars worker against recorded fixtures (ci/run-integration.sh)
+# group: [cars]
+
+require vgi
+
+require-env CARS_WORKER
+
+require-env CARS_MOCK_API
+
+require-env CARS_CACHE_DIR
+
+statement ok
+ATTACH 'cars' (TYPE vgi, LOCATION '{CARS_WORKER}',
+    EPA_VEHICLES_URL '{CARS_MOCK_API}/feg/epadata/vehicles.csv.zip',
+    VPIC_BASE_URL '{CARS_MOCK_API}/api',
+    NHTSA_BASE_URL '{CARS_MOCK_API}',
+    CACHE_DIR '{CARS_CACHE_DIR}/main');
+
+# ---------------------------------------------------------------- cache (before any download)
+
+query TT
+SELECT status, cached FROM cars.main.cache_info();
+----
+missing	false
+
+# ---------------------------------------------------------------- vehicles (EPA bulk file)
+
+# First use downloads the fixture bulk file (34 rows of real EPA data) into the cache.
+query I
+SELECT count(*) FROM cars.main.vehicles();
+----
+34
+
+query TIIIII
+SELECT model, cylinders, city_mpg, highway_mpg, combined_mpg, id
+FROM cars.main.vehicles(year := 2024, make := 'toyota', model := 'tundra') ORDER BY id;
+----
+Tundra 2WD	6	18	23	20	47117
+Tundra 2WD	6	18	23	20	47118
+Tundra 2WD	6	20	24	22	47119
+Tundra 4WD	6	17	23	19	47129
+Tundra 4WD	6	17	22	19	47130
+Tundra 4WD	6	19	22	20	47131
+
+# make is upper-cased; model also matches the full EPA model name, case-insensitively.
+query TT
+SELECT DISTINCT make, base_model FROM cars.main.vehicles(model := 'TUNDRA 4wd');
+----
+TOYOTA	Tundra
+
+# Typed columns: EV range, MPGe, booleans, dates, the per-vehicle URL.
+query TIITT
+SELECT model, electric_range_miles, combined_mpg, turbocharged, fueleconomy_url
+FROM cars.main.vehicles(year := 2019, make := 'Tesla') ORDER BY id LIMIT 1;
+----
+Model 3 Mid Range	264	123	false	https://www.fueleconomy.gov/feg/noframes/41188.shtml
+
+query TTIII
+SELECT powertrain, secondary_fuel, electric_range_miles, combined_mpg, combined_mpg_secondary
+FROM cars.main.vehicles() WHERE id = 47274;
+----
+Plug-in Hybrid	Electricity	33	29	77
+
+# -1 sentinels become NULL (scores did not exist before 2013); dates parse.
+query IIT
+SELECT fuel_economy_score, ghg_score, created_on FROM cars.main.vehicles() WHERE id = 1;
+----
+NULL	NULL	2013-01-01
+
+query TI
+SELECT powertrain, count(*) FROM cars.main.vehicles() WHERE powertrain IS NOT NULL GROUP BY ALL ORDER BY ALL;
+----
+CNG	1
+Diesel	1
+EV	4
+FFV	1
+Hybrid	6
+Plug-in Hybrid	2
+
+# Projection pushdown: a single column comes back typed.
+query I
+SELECT sum(cylinders) FROM cars.main.vehicles(year := 1985);
+----
+24
+
+query I
+SELECT count(*) FROM cars.main.vehicles(year := 1999);
+----
+0
+
+statement error
+SELECT * FROM cars.main.vehicles(year := 1950);
+----
+<REGEX>:.*
+
+# ---------------------------------------------------------------- cache_info / refresh_cache
+
+query TTIII
+SELECT status, cached, vehicle_rows, min_model_year, max_model_year FROM cars.main.cache_info();
+----
+cached	true	34	1985	2024
+
+query T
+SELECT length(sha256) = 64 FROM cars.main.cache_info();
+----
+true
+
+# The fixture server honours If-None-Match, so a re-check is a 304.
+query TI
+SELECT status, vehicle_rows FROM cars.main.refresh_cache();
+----
+not_modified	34
+
+query TI
+SELECT status, vehicle_rows FROM cars.main.refresh_cache(force := true);
+----
+downloaded	34
+
+# ---------------------------------------------------------------- makes / models (vPIC)
+
+query IT
+SELECT make_id, make FROM cars.main.makes() WHERE make IN ('HONDA', 'TESLA') ORDER BY make;
+----
+474	HONDA
+441	TESLA
+
+query TT
+SELECT make, vehicle_type FROM cars.main.makes(vehicle_type := 'car') ORDER BY make LIMIT 2;
+----
+ASTON MARTIN	Passenger Car
+BMW	Passenger Car
+
+query I
+SELECT count(*) FROM cars.main.models('honda', year := 2020);
+----
+81
+
+query TTI
+SELECT make, model, model_year FROM cars.main.models('honda', year := 2020) WHERE model IN ('Accord', 'Civic') ORDER BY model;
+----
+HONDA	Accord	2020
+HONDA	Civic	2020
+
+query TT
+SELECT make, model FROM cars.main.models('honda') ORDER BY model_id LIMIT 1;
+----
+HONDA	Accord
+
+query I
+SELECT count(*) FROM cars.main.models('nosuchmake', year := 2020);
+----
+0
+
+# ---------------------------------------------------------------- decode_vin (scalar)
+
+query TTITTR
+SELECT d.make, d.model, d.model_year, d.trim, d.plant_state, d.displacement_l
+FROM (SELECT cars.main.decode_vin('1HGCM82633A004352') AS d);
+----
+HONDA	Accord	2003	EX-V6	OHIO	2.999
+
+query T
+SELECT cars.main.decode_vin('1HGCM82633A004352', 2003).error_code;
+----
+0
+
+query T
+SELECT cars.main.decode_vin(NULL::VARCHAR);
+----
+NULL
+
+# Whole columns, with duplicates and NULLs; lower-case and padded input is normalized.
+query TTT
+SELECT v, d.make, d.electrification_level
+FROM (SELECT v, cars.main.decode_vin(v) AS d
+      FROM (VALUES ('5YJ3E1EA7KF317000'), (' 1ftfw1et5dfc10312 '), ('5YJ3E1EA7KF317000'), (NULL)) t(v))
+ORDER BY v NULLS LAST;
+----
+ 1ftfw1et5dfc10312 	FORD	NULL
+5YJ3E1EA7KF317000	TESLA	BEV (Battery Electric Vehicle)
+5YJ3E1EA7KF317000	TESLA	BEV (Battery Electric Vehicle)
+NULL	NULL	NULL
+
+# vPIC errors come back in the struct; malformed input is not sent at all.
+query TT
+SELECT cars.main.decode_vin('BADVIN').error_code, cars.main.decode_vin('NOT-A;VIN').error_code;
+----
+6,7,11,400	400
+
+# ---------------------------------------------------------------- decode_vins (table in-out)
+
+query TTIT
+SELECT vin, make, model_year, body_class
+FROM cars.main.decode_vins((SELECT * FROM (VALUES ('1HGCM82633A004352'), ('5YJ3E1EA7KF317000'), ('1FTFW1ET5DFC10312')) t(vin)))
+ORDER BY vin;
+----
+1FTFW1ET5DFC10312	FORD	2013	Pickup
+1HGCM82633A004352	HONDA	2003	Coupe
+5YJ3E1EA7KF317000	TESLA	2019	Sedan/Saloon
+
+query TT
+SELECT vin, trim FROM cars.main.decode_vins((SELECT '1HGCM82633A004352' AS vin, 2003 AS model_year));
+----
+1HGCM82633A004352	EX-V6
+
+statement error
+SELECT * FROM cars.main.decode_vins((SELECT 1 AS id));
+----
+<REGEX>:.*vin.*
+
+# ---------------------------------------------------------------- recalls
+
+query I
+SELECT count(*) FROM cars.main.recalls('honda', 'accord', 2003);
+----
+24
+
+query TTT
+SELECT campaign_number, report_received_date, recall_url FROM cars.main.recalls('Honda', 'Accord', 2003)
+WHERE campaign_number = '19V182000';
+----
+19V182000	2019-03-06	https://www.nhtsa.gov/recalls?nhtsaId=19V182000
+
+query I
+SELECT count(*) FROM cars.main.recalls('toyota', 'tundra', 2024) WHERE report_received_date = DATE '2024-02-21';
+----
+1
+
+# Unknown vehicles: NHTSA answers HTTP 400 with an empty list; we return zero rows.
+query I
+SELECT count(*) FROM cars.main.recalls('honda', 'nosuch', 2003);
+----
+0
+
+# ---------------------------------------------------------------- complaints
+
+query I
+SELECT count(*) FROM cars.main.complaints('honda', 'accord', 2003);
+----
+6
+
+query T
+SELECT components FROM cars.main.complaints('honda', 'accord', 2003) WHERE len(components) >= 3 ORDER BY odi_number LIMIT 1;
+----
+<REGEX>:\[.+, .+, .+\]
+
+query I
+SELECT count(*) FROM cars.main.complaints('honda', 'nosuch', 2003);
+----
+0
+
+# ---------------------------------------------------------------- safety_ratings
+
+query TIIR
+SELECT vehicle_description, overall_rating, rollover_rating, rollover_risk FROM cars.main.safety_ratings('honda', 'accord', 2020);
+----
+2020 Honda ACCORD 4 DR FWD	5	5	0.093
+
+query I
+SELECT count(*) FROM cars.main.safety_ratings('toyota', 'tundra', 2024);
+----
+4
+
+query TII
+SELECT vehicle_description, overall_rating, recalls_count FROM cars.main.safety_ratings('toyota', 'tundra', 2024) WHERE vehicle_id = 19454;
+----
+2024 Toyota TUNDRA PU/EC 2WD	NULL	10
+
+query I
+SELECT count(*) FROM cars.main.safety_ratings('honda', 'nosuch', 2020);
+----
+0
+
+# ---------------------------------------------------------------- cross-source join
+
+query TII
+SELECT v.base_model, max(v.combined_mpg), max(s.overall_rating)
+FROM cars.main.vehicles(year := 2020, make := 'honda', model := 'accord') v
+JOIN cars.main.safety_ratings('honda', 'accord', 2020) s
+  ON s.model_year = v.model_year AND s.make = v.make AND s.model = upper(v.base_model)
+GROUP BY ALL;
+----
+Accord	33	5
+
+# ---------------------------------------------------------------- offline mode
+
+statement ok
+ATTACH 'cars' AS cars_offline (TYPE vgi, LOCATION '{CARS_WORKER}',
+    EPA_VEHICLES_URL '{CARS_MOCK_API}/feg/epadata/vehicles.csv.zip',
+    CACHE_DIR '{CARS_CACHE_DIR}/empty', OFFLINE true);
+
+statement error
+SELECT count(*) FROM cars_offline.main.vehicles();
+----
+<REGEX>:.*OFFLINE.*
+
+statement error
+SELECT status FROM cars_offline.main.refresh_cache();
+----
+<REGEX>:.*OFFLINE.*
+
+# A broken download is rejected and nothing is cached.
+statement ok
+ATTACH 'cars' AS cars_broken (TYPE vgi, LOCATION '{CARS_WORKER}',
+    EPA_VEHICLES_URL '{CARS_MOCK_API}/feg/epadata/broken.csv.zip',
+    CACHE_DIR '{CARS_CACHE_DIR}/broken');
+
+statement error
+SELECT count(*) FROM cars_broken.main.vehicles();
+----
+<REGEX>:.*not a zip.*
+
+query T
+SELECT cached FROM cars_broken.main.cache_info();
+----
+false

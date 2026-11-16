@@ -1,0 +1,1 @@
+"""VGI cars worker package."""

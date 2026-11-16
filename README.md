@@ -1,62 +1,30 @@
-<!-- managed-by: vgi-starters (edit upstream in shared/README.md.tmpl, then run tools/render.py) -->
 <p align="center">
   <img src="https://query.farm/media-kit/products/vgi/vgi-logo.png" alt="Vector Gateway Interface (VGI)" width="320">
 </p>
 
-<p align="center"><em>A Query.Farm VGI worker for DuckDB, written in Python.</em></p>
+# Query US Vehicle Specs, Fuel Economy and Safety Data in DuckDB
 
-# VGI Starter Worker — Python
+> **vgi-cars** · a [Query.Farm](https://query.farm) VGI worker
 
-[![CI](https://github.com/Query-farm/vgi-starter-python/actions/workflows/ci.yml/badge.svg)](https://github.com/Query-farm/vgi-starter-python/actions/workflows/ci.yml)
+[![CI](https://github.com/Query-farm/vgi-cars/actions/workflows/ci.yml/badge.svg)](https://github.com/Query-farm/vgi-cars/actions/workflows/ci.yml)
 [![vgi worker: query.farm](https://query.farm/media-kit/shields/vgi-worker.svg)](https://query.farm)
 
-[VGI](https://query.farm/vgi) lets DuckDB call functions that live in a separate
-process: your code, in any language, exposed as ordinary SQL. This worker adds
-three example functions that you rename and replace with your own:
+Keyless US-government vehicle data as SQL: EPA fuel economy and powertrain specifications for
+every light-duty vehicle sold in the US since model year 1984, NHTSA VIN decoding, the makes and
+models NHTSA knows about, safety recalls, owner complaints and NCAP 5-Star crash ratings. No API
+key, no account. Every result shares two join keys, `model_year` (`INTEGER`) and `make`
+(upper-cased, e.g. `'TOYOTA'`), so you can combine the sources in one query.
 
-| Function | Kind | Shows you how to |
-|---|---|---|
-| `greet(name)` / `greet(name, style)` | scalar | vectorize over a column, overload, constrain a constant |
-| `sequence_table(count, step := 1)` | table | stream rows in batches, take named arguments |
-| `fetch_items(base_url, page_size := 100)` | table | page through a REST API, retry, read a secret |
-
-<!-- template-only:start -->
-## Use this template
-
-This repository is a **template**. Click **Use this template** on GitHub, or:
-
-```bash
-gh repo create my-org/weather-worker --template Query-farm/vgi-starter-python --private --clone
-cd weather-worker
-make init NAME=weather     # renames catalog, package, binary, env vars; removes this section
-make check                 # lint + tests over every transport + metadata score
+```sql
+-- Fuel economy and crash ratings for the 2020 Honda Accord, side by side.
+SELECT v.model, v.combined_mpg, s.vehicle_description, s.overall_rating
+FROM cars.main.vehicles(year := 2020, make := 'honda', model := 'accord') v
+JOIN cars.main.safety_ratings('honda', 'accord', 2020) s
+  ON s.model_year = v.model_year AND s.make = v.make AND s.model = upper(v.base_model)
+ORDER BY v.combined_mpg DESC;
 ```
-
-Prefer to work with an AI coding agent? `make init` first, then hand it
-[AGENTS.md](AGENTS.md). See [Using with coding agents](#using-with-coding-agents).
-
-Starters exist for [Python](https://github.com/Query-farm/vgi-starter-python),
-[TypeScript](https://github.com/Query-farm/vgi-starter-typescript),
-[Go](https://github.com/Query-farm/vgi-starter-go),
-[Rust](https://github.com/Query-farm/vgi-starter-rust),
-[Java](https://github.com/Query-farm/vgi-starter-java) and
-[C#](https://github.com/Query-farm/vgi-starter-csharp). They are generated from
-[Query-farm/vgi-starters](https://github.com/Query-farm/vgi-starters); send
-changes there.
-<!-- template-only:end -->
 
 ## Quick start
-
-**Prerequisites:** Python 3.13+ and [uv](https://docs.astral.sh/uv/) (it runs the SQL
-test runner and the metadata checker).
-
-```bash
-make build
-```
-
-Then open DuckDB 2.0 or [Haybarn](https://query.farm/products/haybarn) and attach the
-worker. `LOCATION` is the command DuckDB runs to start it; use an absolute path,
-because a relative one resolves against DuckDB's working directory.
 
 **DuckDB 2.0:**
 
@@ -65,250 +33,140 @@ SET allow_extension_repositories = 'allowed';
 CREATE EXTENSION REPOSITORY IF NOT EXISTS query_farm WITH PREFIX 'https://duckdb-extensions.query.farm';
 INSTALL vgi FROM query_farm;
 LOAD vgi FROM query_farm;
-ATTACH 'starter' (TYPE vgi, LOCATION '/abs/path/to/vgi-starter-python/.venv/bin/vgi-starter-worker');
+
+ATTACH 'cars' (TYPE vgi,
+  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-cars@v0.1.0 vgi-cars-worker');
+
+SELECT model, combined_mpg FROM cars.main.vehicles(year := 2024, make := 'toyota', model := 'prius');
 ```
 
-**Haybarn 2.0** (`uvx haybarn-cli`):
+**Haybarn 2.0** (`uvx haybarn-cli`): use `INSTALL vgi FROM community; LOAD vgi;` and the same
+`ATTACH`.
+
+**From a checkout:** run `make build`, then use
+`LOCATION '/abs/path/to/vgi-cars/.venv/bin/vgi-cars-worker'`.
+
+## Functions
+
+All functions live in `cars.main`.
+
+| Function | Kind | Source | What it returns |
+|---|---|---|---|
+| `vehicles(year := , make := , model := )` | table | EPA bulk file (cached) | One row per EPA vehicle configuration since 1984: MPG/MPGe, CO2, fuel cost, EV range, engine, transmission, drive, class, `fueleconomy_url` |
+| `cache_info()` | table | local cache | Where the EPA file is cached, its size, SHA-256, row count, model-year span, download/check times (never touches the network) |
+| `refresh_cache(force := false)` | table | EPA | Re-check (conditional request) or re-download the EPA file now; same row as `cache_info()` plus what happened |
+| `makes(vehicle_type := )` | table | NHTSA vPIC | Registered makes, optionally for `'car'`, `'truck'`, `'mpv'`, `'motorcycle'`, `'bus'`, `'trailer'` |
+| `models(make, year := , vehicle_type := )` | table | NHTSA vPIC | Models of a make, optionally for one model year and type |
+| `decode_vin(vin)` / `decode_vin(vin, model_year)` | scalar | NHTSA vPIC | `STRUCT` of make, model, year, trim, body, engine, transmission, plant and vPIC error code |
+| `decode_vins((SELECT vin [, model_year] ...))` | table in-out | NHTSA vPIC | The same fields as flat columns, one row per input row |
+| `recalls(make, model, year)` | table | NHTSA | Recall campaigns: component, summary, consequence, remedy, dates, park-it flags, nhtsa.gov link |
+| `complaints(make, model, year)` | table | NHTSA | Owner complaints: dates, crash/fire flags, injuries, deaths, components (`VARCHAR[]`), narrative |
+| `safety_ratings(make, model, year)` | table | NHTSA NCAP | 5-Star ratings per tested variant: overall, frontal, side, pole, rollover and risk, ADAS availability |
+
+More examples:
 
 ```sql
-INSTALL vgi FROM community;
-LOAD vgi;
-ATTACH 'starter' (TYPE vgi, LOCATION '/abs/path/to/vgi-starter-python/.venv/bin/vgi-starter-worker');
+-- Longest-range EVs per model year since 2020.
+SELECT model_year, make, model, electric_range_miles
+FROM cars.main.vehicles() WHERE powertrain = 'EV' AND model_year >= 2020
+QUALIFY row_number() OVER (PARTITION BY model_year ORDER BY electric_range_miles DESC) = 1
+ORDER BY model_year;
+
+-- Decode a fleet table and count vehicles by make and fuel.
+SELECT make, primary_fuel, count(*) FROM cars.main.decode_vins((SELECT vin FROM fleet)) GROUP BY ALL;
+
+-- Which components do owners complain about most?
+SELECT component, count(*) AS n
+FROM (SELECT unnest(components) AS component FROM cars.main.complaints('honda', 'accord', 2003))
+GROUP BY component ORDER BY n DESC LIMIT 5;
 ```
 
-Now call the functions:
+Notes:
+
+- Scalars have no named arguments in DuckDB, so `decode_vin(vin, model_year)` takes the model
+  year as a constant. For a different year per row, use
+  `decode_vins((SELECT vin, model_year FROM ...))`.
+- NHTSA model names are usually the base model (`'ACCORD'`, `'F-150'`), not EPA's
+  drive/trim names (`'Accord'`, `'F150 Pickup 2WD'`); join on `upper(base_model)` where they agree.
+- For EVs, EPA's `city_mpg`/`highway_mpg`/`combined_mpg` are MPGe. `-1` sentinels and empty
+  strings from upstream become `NULL`.
+- **No colors.** Vehicle colors are not part of any free official US data source (VINs do not
+  encode them, and EPA/NHTSA do not publish them), so this worker does not offer them.
+
+## What pushes down
+
+- `vehicles()`: the named arguments `year`, `make` and `model` filter rows inside the worker
+  before anything is sent to DuckDB; only the columns your query uses are sent (projection
+  pushdown). Other `WHERE` clauses are evaluated by DuckDB over the in-memory 50,000-row table.
+- `recalls`, `complaints`, `safety_ratings`: make, model and year are the upstream query; NHTSA has
+  no further server-side filters.
+- `makes(vehicle_type :=)` and `models(make, year :=, vehicle_type :=)` choose the matching vPIC
+  endpoint.
+- `decode_vin` / `decode_vins`: VINs are normalized (trimmed, upper-cased), de-duplicated within
+  each Arrow batch, memoized per worker process, and sent 50 per `DecodeVINValuesBatch` POST.
+
+## The EPA bulk file and its cache
+
+`vehicles()` reads EPA's [`vehicles.csv.zip`](https://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip)
+(about 2.2 MB zipped, 50,000 rows). It is downloaded on first use, never at import or `ATTACH`, into
+the per-user cache directory (`~/Library/Caches/vgi-cars` on macOS, `~/.cache/vgi-cars` on Linux),
+checked (valid zip, CRC, expected CSV header), written atomically and parsed once per worker process.
+After `MAX_AGE_DAYS` (default 7) it is re-checked with a conditional request. If the re-check fails,
+the worker keeps using the cached copy.
+
+ATTACH options:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `CACHE_DIR` | per-user cache dir | Where `vehicles.csv.zip` and its metadata are kept |
+| `MAX_AGE_DAYS` | `7` | Re-check interval for the EPA file |
+| `OFFLINE` | `false` | Never download; use the cached copy only |
+| `EPA_VEHICLES_URL` | fueleconomy.gov | Bulk-file URL (mirror) |
+| `VPIC_BASE_URL` | `https://vpic.nhtsa.dot.gov/api` | vPIC base URL |
+| `NHTSA_BASE_URL` | `https://api.nhtsa.gov` | Recalls/complaints/ratings base URL |
 
 ```sql
-SELECT starter.main.greet('Ada');                         -- Hi, Ada!
-SELECT starter.main.greet('Ada', 'formal');               -- Good day, Ada.
-SELECT * FROM starter.main.sequence_table(5, step := 2) ORDER BY n;
+ATTACH 'cars' (TYPE vgi, LOCATION '...', CACHE_DIR '/data/cars-cache', MAX_AGE_DAYS 30);
+SELECT cached, vehicle_rows, max_model_year, downloaded_at FROM cars.main.cache_info();
 ```
 
-`fetch_items` pages through a REST API. Try it against the public demo API (25 fixed items):
-
-```sql
-SELECT category, count(*) AS items, round(avg(price), 2) AS avg_price
-FROM starter.main.fetch_items('https://vgi-starter-api.query-farm.services/v1')
-GROUP BY category ORDER BY category;
-```
-
-If an older cached extension misbehaves, refresh it with `FORCE INSTALL vgi FROM query_farm;`
-(DuckDB) or `FORCE INSTALL vgi FROM community;` (Haybarn).
-
-## Using it in a pipeline
-
-Worker functions compose with everything else in DuckDB:
-
-```sql
--- Materialize an API into a local table.
-CREATE TABLE items AS SELECT * FROM starter.main.fetch_items('https://vgi-starter-api.query-farm.services/v1');
-
--- Join it with local files.
-SELECT i.name, i.price, s.units
-FROM items i JOIN 'sales.parquet' s ON s.item_id = i.id;
-
--- Call a scalar per row of another table.
-SELECT customer, starter.main.greet(customer, 'formal') FROM read_csv('customers.csv');
-```
-
-## Project layout
-
-```
-src/starter_worker/
-  worker.py        # assembles the catalog; add new functions to FUNCTIONS
-  meta.py          # catalog/schema metadata + helpers (object_tags, column)
-  greet.py         # scalar example (overloads, ConstParam choices)
-  sequence.py      # table function example (named args, streaming state)
-  fetch_items.py   # REST API table function (pagination, retries, secrets)
-tests/             # pytest unit tests (in-process client)
-test/sql/          # sqllogictest files run through DuckDB
-test/mock_api/     # offline mock of the REST API used by tests
-examples/          # recipes: pushdown, caching, catalog tables, aggregates, COPY …
-ci/                # integration harness used by `make test-sql` and CI
-scripts/           # vgi_template.py (init / template-diff)
-vgi-agent-tests.yaml  # private graders for the agent test tasks
-```
-
-## Adding a function
-
-1. Create `src/starter_worker/<name>.py`. Copy the closest example: `greet.py` for a
-   scalar, `sequence.py` for a generator, `fetch_items.py` for an API.
-2. Declare arguments with `Annotated[..., Param(...)]`/`ConstParam(...)` (scalars) or a
-   frozen dataclass of `Annotated[..., Arg(...)]` (table functions). Use `Arg(0, ...)`
-   for positional arguments and `Arg("name", default=...)` for named ones.
-3. Give the class a `class Meta` with `name`, `description`, `tags=object_tags(...)`
-   and `examples`.
-4. Add the class to `FUNCTIONS` in `src/starter_worker/worker.py`.
-
-**Which kind of function?**
-
-| You want to… | Use |
-|---|---|
-| compute one value per input row | a **scalar** function |
-| return a set of rows from arguments (an API, a file, a generator) | a **table** function |
-| transform or aggregate the rows of a query | a **table in-out** function or an **aggregate** |
-| expose a fixed dataset by name (`SELECT * FROM starter.main.t`) | a **catalog table** |
-| write data out to a file or service | `COPY … TO` with a copy function |
-| accept `INSERT` / `UPDATE` / `DELETE` | a catalog table with insert/update/delete functions |
-
-The [examples/](examples/) folder has a recipe for most of these. Writable tables have no
-recipe:
-
-A writable table is a catalog `Table` that names a table in-out function per operation in
-`insert_function`, `update_function` and `delete_function`, with the richest result each one
-produces in `write_result_modes`. The helpers in `vgi.write_results` (`write_options`,
-`write_result_schema`, `write_result_batch`, `row_id_field`) read DuckDB's `write_options`
-argument and build the result. UPDATE and DELETE need a scan function that emits
-`row_id_field()` and declares projection pushdown. Transactions: override `attach_supports_transactions`
-and `catalog_transaction_begin` / `_commit` / `_rollback` on the catalog. Since VGI protocol 3.3
-a table's scan and write functions are table-only: hidden from `duckdb_functions()` and not
-callable from SQL. Set `expose_scan=True` on the table to keep the scan callable as an ordinary
-table function too (write functions never are). See
-[Writable tables](https://github.com/Query-farm/vgi-python/blob/main/docs/catalog-interface.md#writable-tables)
-in the vgi-python docs.
-
-## Secrets and configuration
-
-`fetch_items` shows the recommended pattern. A bearer token comes from a DuckDB secret
-when one exists, and from an environment variable otherwise:
-
-```sql
-CREATE SECRET (TYPE starter_api, TOKEN 'your-token');      -- per session, never logged
-```
-
-```bash
-STARTER_API_TOKEN=your-token make run-http                # for servers and containers
-```
-
-Try it: the demo API's `/v1/auth` endpoint needs the published token `demo-token`.
-
-```sql
-SELECT count(*) FROM starter.main.fetch_items('https://vgi-starter-api.query-farm.services/v1/auth');   -- fails: HTTP 401
-CREATE SECRET (TYPE starter_api, TOKEN 'demo-token');
-SELECT count(*) FROM starter.main.fetch_items('https://vgi-starter-api.query-farm.services/v1/auth');   -- 25
-```
-
-Never bake credentials into the image or the source. If a function can't run without
-real credentials, its examples can't execute in CI either. Set `execute: false` on the
-metadata check for that worker (see `.github/workflows/ci.yml`), and add
-`LINT_ARGS ?= --no-execute` to the Makefile so local runs match.
+The worker sends a `vgi-cars/0.1 (+https://query.farm)` User-Agent, sets timeouts on every request,
+and retries HTTP 429/5xx with backoff, honouring `Retry-After`. NHTSA answers "no such vehicle" with
+HTTP 400 and an empty list; the functions return zero rows for those.
 
 ## Testing
 
 ```bash
-make test-unit                 # fast Python unit tests
-make test-sql                  # test/sql/*.test through DuckDB (stdio)
-make test-sql TRANSPORT=http   # …over HTTP (also: launch)
-make check                     # everything CI runs
+make test-unit                 # Python unit tests (offline, fixture server)
+make test-sql                  # test/sql/*.test through Haybarn's SQL runner (stdio)
+make test-sql TRANSPORT=http   # ...over HTTP (also: launch)
+make check                     # everything CI runs, including vgi-lint
+make live-check                # opt-in: a few queries against the live EPA/NHTSA services
 ```
 
-`test/sql/*.test` files are [sqllogictest](https://duckdb.org/docs/stable/dev/sqllogictest/intro)
-scripts. `ci/run-integration.sh` runs them against your worker and fails on any
-unexpected skip, so a broken transport can't hide behind a green run.
-`fetch_items` is tested against `test/mock_api/server.py` so tests are fast and
-offline.
+The SQL and unit tests run offline against `test/mock_api/server.py`, which serves recorded
+upstream responses from `test/fixtures` on the real services' paths (selected with the ATTACH
+options above). It rate-limits every path once so the retry path is always tested. The metadata
+check (`make lint-explain`) executes the function examples against the live services; each
+execution downloads the 2.2 MB EPA file at most once and makes a handful of NHTSA requests.
 
-**Testing against real data:** put live tests in their own `.test` file that starts with
-`require-env STARTER_LIVE`. They run only when that variable is set. Add the skip reason
-to `EXPECTED_SKIP_REASONS` in CI.
+## Data terms
 
-## Metadata and the quality score
-
-DuckDB, agents and documentation tools discover your functions through their metadata:
-titles, descriptions, argument docs, examples and keywords.
-[vgi-lint](https://github.com/Query-farm/vgi-lint-check) checks it, and CI runs it on
-every push. Its settings live in `vgi-lint.toml`, which `make lint-explain`,
-`vgi-lint lint`, and CI all read. This template scores 100/100 with no findings.
-
-```bash
-make lint-explain                              # findings, each with its fix
-make lint-explain LINT_ARGS="--format agent"   # the same, grouped for coding agents
-make lint-ai                                   # optional: an agent must solve vgi-agent-tests.yaml
-```
-
-Each report also states an **assurance level**: how much was actually verified.
-
-| Level | Reached when | Here |
-|---|---|---|
-| L1 structural | the static metadata is clean | workers that need real credentials (`execute: false` in CI) |
-| L2 behavioural | the examples also run and return what they claim | **the CI gate** |
-| L3 semantic | an agent solves the worker's own test tasks, and the docs are reviewed | `make lint-ai`, before publishing |
-
-- **How strict.** Your copy fails on warnings (`fail_on = "warning"` in `vgi-lint.toml`).
-  Raise it to `"info"` before you publish the worker for others.
-- **The linter isn't pinned.** It tracks the current quality bar, so a new rule can flag
-  metadata that passed yesterday. Fix it, or waive the finding.
-- **Waivers.** If a finding is genuinely wrong for your worker, waive it in
-  `vgi-lint.toml` with a `kind` and a `reason`.
-- **Existing workers.** If you're adding this gate to a worker that already has
-  findings, record them with `vgi-lint lint --baseline vgi-lint-baseline --update-baseline`
-  and set `baseline` in `vgi-lint.toml`. After that, only new findings fail.
-
-Metadata lives in `src/starter_worker/meta.py` and each function's `class Meta`.
-
-## Logging and debugging
-
-stdout carries the Arrow protocol, so **never print to stdout**. Log to stderr instead.
-Use the standard `logging` module (the SDK routes it to stderr); `--debug` or `--log-level DEBUG` turns it up.
-
-- Under DuckDB (stdio/launch), worker stderr shows up in DuckDB's error messages and
-  terminal.
-- In Docker it goes to `docker logs`.
-- `make debug` runs one query against the worker with debug logging on.
-
-## Deploying
-
-The same binary serves stdio (DuckDB starts it locally) or HTTP (you host it):
-
-```bash
-docker build -t weather-worker .
-docker run -p 8000:8000 -e STARTER_API_TOKEN=... weather-worker   # health: GET /health
-```
-
-```sql
-ATTACH 'starter' (TYPE vgi, LOCATION 'https://workers.example.com/starter');
-```
-
-Put hosted workers behind TLS and authentication. See
-[authentication](https://query.farm/vgi/authentication) for bearer tokens and JWTs, and
-[distributing a worker](https://query.farm/vgi/distributing-a-worker) for packaging.
-Pass secrets with `-e` or your platform's secret manager.
-
-## Releasing
-
-Push a tag like `v0.1.0`. The release workflow builds the wheel and sdist, attaches them to the GitHub release, and (if you set the repository variable `PYPI_PUBLISH=true` and configure PyPI Trusted Publishing) publishes to PyPI, so users can run `uvx vgi-starter-worker`. Without PyPI, users install straight from the repo with `uvx --from git+https://github.com/Query-farm/vgi-starter-python@v0.1.0 vgi-starter-worker`. Every artifact is signed with cosign and
-carries SLSA build provenance. `ci/check-version.sh` makes sure the tag matches the
-version in `pyproject.toml`.
-
-## Using with coding agents
-
-[AGENTS.md](AGENTS.md) is written for AI coding agents (Claude Code reads it via
-`CLAUDE.md`; Codex, Cursor and others read it directly). It covers the commands, the
-recipe for adding a function, the metadata checklist and the sharp edges. A good first
-prompt:
-
-> Read AGENTS.md. Replace `fetch_items` with `forecast(lat DOUBLE, lon DOUBLE)` that calls
-> the Open-Meteo API. Include full metadata, a mock-server test and a `STARTER_LIVE` test.
-> You're done when `make check` passes.
-
-## Keeping up with the template
-
-`make template-diff` shows what changed upstream (CI, docs, examples) since your copy was
-made. Your copy records its template version in `.vgi-starter.json`.
-
-## Learn more
-
-- [What is VGI?](https://query.farm/vgi) · [Getting started](https://query.farm/vgi/getting-started) · [Building a worker](https://query.farm/vgi/building-a-worker)
-- [Python SDK docs](https://query.farm/vgi/docs/python/): [scalar tutorial](https://query.farm/vgi/docs/python/tutorial/scalar/), [table tutorial](https://query.farm/vgi/docs/python/tutorial/table/)
-- [Distributing a worker](https://query.farm/vgi/distributing-a-worker) · [Choosing a language](https://query.farm/vgi/languages) · [llms.txt](https://query.farm/vgi/llms.txt)
-- SDK source: [vgi-python](https://github.com/Query-farm/vgi-python) · RPC layer: [https://vgi-rpc-python.query.farm](https://vgi-rpc-python.query.farm)
+The code is under the license below; the data is not. The data comes from US federal agencies:
+EPA ([fueleconomy.gov](https://www.fueleconomy.gov/feg/ws/index.shtml)) and NHTSA
+([vPIC](https://vpic.nhtsa.dot.gov/api/), [datasets and APIs](https://www.nhtsa.gov/nhtsa-datasets-and-apis)).
+US-government works are in the public domain in the United States. The agencies provide
+them as is: complaints are unverified owner reports, and a missing vPIC value means NHTSA has no data
+(not that a feature is absent). This project is not affiliated with or endorsed by EPA, DOE or NHTSA.
+See [DATA-SOURCES.md](DATA-SOURCES.md) for the test fixtures in this repository.
 
 ## Support
 
-Open an issue on this repository. For VGI itself, see [query.farm](https://query.farm).
+Issues: <https://github.com/Query-farm/vgi-cars/issues>.
 
-## Authorship & license
+## Authorship & License
 
-The starter template is written by [Query.Farm](https://query.farm) and released under
-the [BSD Zero Clause License](LICENSE) (0BSD). Use it for anything, with no attribution
-required. Replace this section with your own license once the code is yours.
+Copyright 2026 Query Farm LLC - https://query.farm
+
+Written by [Query.Farm](https://query.farm) and released under the
+[BSD Zero Clause License](LICENSE) (0BSD).

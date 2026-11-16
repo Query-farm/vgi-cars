@@ -1,16 +1,67 @@
 # Private graders for the public vgi.agent_test_tasks in the worker's catalog metadata.
 # `vgi-lint lint --ai` runs an agent on each prompt and grades it with check_sql.
 # See https://github.com/Query-farm/vgi-lint-check (VGI920).
+#
+# Every relation reads live upstream data (EPA republishes the bulk file; NHTSA adds recalls
+# and ratings), so no task exact-matches a frozen reference. Each prompt asks the agent to save
+# its answer in a temp table, and check_sql (run in the agent's session afterwards) compares it
+# with the same value recomputed through the worker.
 tasks:
-  - name: formal_greeting
-    reference_sql: SELECT starter.main.greet('Grace', 'formal') AS greeting
-  - name: sum_of_squares
-    reference_sql: SELECT sum(squared) AS total FROM starter.main.sequence_table(10)
-  - name: stepped_sequence
-    reference_sql: SELECT n FROM starter.main.sequence_table(4, step := 5) ORDER BY n
-  # Reads the public demo API (https://vgi-starter-api.query-farm.services/v1).
-  - name: items_per_category
+  - name: best_mpg_tundra_2024
     check_sql: >-
-      SELECT count(*) = 3 AND sum(items) = 25
-      FROM (SELECT category, count(*) AS items
-            FROM starter.main.fetch_items('https://vgi-starter-api.query-farm.services/v1') GROUP BY category)
+      SELECT (SELECT count(*) FROM tundra_best) = 1
+      AND (SELECT max(best_mpg) FROM tundra_best) = (
+        SELECT max(combined_mpg) FROM cars.main.vehicles(year := 2024, make := 'toyota', model := 'tundra'))
+  - name: ev_range_2019_tesla
+    check_sql: >-
+      SELECT (SELECT count(*) FROM tesla_2019) = 1
+      AND (SELECT max(configurations) FROM tesla_2019) = (
+        SELECT count(*) FROM cars.main.vehicles(year := 2019, make := 'tesla', model := 'model 3'))
+      AND (SELECT max(longest_range_miles) FROM tesla_2019) = (
+        SELECT max(electric_range_miles) FROM cars.main.vehicles(year := 2019, make := 'tesla', model := 'model 3'))
+  - name: decode_accord_vin
+    check_sql: >-
+      SELECT (SELECT count(*) FROM vin_answer) = 1
+      AND (SELECT upper(max(make)) FROM vin_answer) = d.make
+      AND (SELECT upper(max(model)) FROM vin_answer) = upper(d.model)
+      AND (SELECT max(CAST(model_year AS INTEGER)) FROM vin_answer) = d.model_year
+      FROM (SELECT cars.main.decode_vin('1HGCM82633A004352') AS d)
+  - name: accord_airbag_recalls
+    check_sql: >-
+      SELECT (SELECT count(*) FROM airbag_recalls) = 1
+      AND (SELECT max(recalls) FROM airbag_recalls) = (
+        SELECT count(*) FROM cars.main.recalls('honda', 'accord', 2003) WHERE component LIKE '%AIR BAG%')
+  - name: accord_2020_overall_rating
+    check_sql: >-
+      SELECT (SELECT count(*) FROM accord_rating) = 1
+      AND (SELECT max(stars) FROM accord_rating) = (
+        SELECT max(overall_rating) FROM cars.main.safety_ratings('honda', 'accord', 2020))
+  - name: accord_fire_complaints
+    check_sql: >-
+      SELECT (SELECT count(*) FROM fire_complaints) = 1
+      AND (SELECT max(complaints) FROM fire_complaints) = (
+        SELECT count(*) FROM cars.main.complaints('honda', 'accord', 2003) WHERE fire)
+  - name: fleet_vin_years
+    check_sql: >-
+      SELECT (SELECT count(*) FROM fleet_years) = 3
+      AND NOT EXISTS (
+        SELECT 1 FROM fleet_years f
+        JOIN cars.main.decode_vins((SELECT vin FROM fleet_years)) d ON upper(trim(f.vin)) = d.vin
+        WHERE CAST(f.model_year AS INTEGER) IS DISTINCT FROM d.model_year)
+      AND (SELECT count(*) FROM fleet_years f
+           JOIN cars.main.decode_vins((SELECT vin FROM fleet_years)) d ON upper(trim(f.vin)) = d.vin) = 3
+  - name: car_make_count
+    check_sql: >-
+      SELECT (SELECT count(*) FROM car_makes) = 1
+      AND (SELECT max(makes) FROM car_makes) = (
+        SELECT count(DISTINCT make) FROM cars.main.makes(vehicle_type := 'car'))
+  - name: honda_2020_models
+    check_sql: >-
+      SELECT (SELECT count(*) FROM honda_models) = 1
+      AND (SELECT max(models) FROM honda_models) = (
+        SELECT count(DISTINCT model) FROM cars.main.models('honda', year := 2020) WHERE make = 'HONDA')
+  - name: epa_data_vintage
+    check_sql: >-
+      SELECT (SELECT count(*) FROM epa_vintage) = 1
+      AND (SELECT max(max_model_year) FROM epa_vintage) = (SELECT max_model_year FROM cars.main.refresh_cache())
+      AND (SELECT max(max_model_year) FROM epa_vintage) = (SELECT max_model_year FROM cars.main.cache_info())
