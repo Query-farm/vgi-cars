@@ -254,10 +254,26 @@ def _yes_no(table: pa.Table, name: str) -> pa.Array[Any]:
     return cast("pa.Array[Any]", result.combine_chunks())
 
 
+_MONTHS = pa.array(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])
+
+
 def _epa_date(table: pa.Table, name: str) -> pa.Array[Any]:
-    """'Tue Jan 01 00:00:00 EST 2013' -> DATE 2013-01-01."""
-    text = pc.replace_substring_regex(table.column(name), r"^\w{3} (\w{3}) (\d{2}) .* (\d{4})$", r"\1 \2 \3")
-    parsed = pc.strptime(text, format="%b %d %Y", unit="s", error_is_null=True)
+    """'Tue Jan 01 00:00:00 EST 2013' -> DATE 2013-01-01.
+
+    The month name is mapped to a number here because Arrow's strptime on Windows
+    does not support ``%b``.
+    """
+    col = table.column(name)
+    pattern = r"^\w{3} (\w{3}) (\d{2}) .* (\d{4})$"
+    month = pc.index_in(pc.replace_substring_regex(col, pattern, r"\1"), value_set=_MONTHS)
+    month_text = pc.utf8_lpad(pc.cast(pc.add(month, 1), pa.string()), 2, "0")
+    text = pc.binary_join_element_wise(
+        pc.replace_substring_regex(col, pattern, r"\3"),
+        month_text,
+        pc.replace_substring_regex(col, pattern, r"\2"),
+        "-",
+    )
+    parsed = pc.strptime(text, format="%Y-%m-%d", unit="s", error_is_null=True)
     return cast("pa.Array[Any]", pc.cast(parsed, pa.date32()).combine_chunks())
 
 
