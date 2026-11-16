@@ -17,10 +17,9 @@ from typing import Annotated, Any, ClassVar, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from vgi.arguments import Arg, ConstParam, Param, Returns, TableInput
+from vgi.arguments import Arg, Attach, Param, Returns, TableInput
 from vgi.invocation import BindResponse
 from vgi.metadata import FunctionExample
-from vgi.protocol import InitRequest
 from vgi.scalar_function import ScalarFunction
 from vgi.table_function import (
     BindParams,
@@ -234,42 +233,10 @@ _DECODE_DOC_LLM = (
 )
 
 
-class _AttachAware:
-    """Mixin for scalars that read their ATTACH options (``compute`` itself does not receive them)."""
-
-    _endpoints: ClassVar[threading.local] = threading.local()
-
-    @classmethod
-    # ScalarFunction.process is @final, but compute() has no access to the ATTACH options
-    # (vgi-python 0.51); this wrapper only records them and delegates to the SDK's process.
-    def process(cls, *, batch: pa.RecordBatch, init_call: InitRequest, **kwargs: Any) -> pa.RecordBatch:
-        """Remember this call's endpoints, then run the normal ``compute`` path."""
-        from vgi.catalog.attach_option import attach_options
-
-        try:
-            options = attach_options(init_call.bind_call.attach_opaque_data)
-        except Exception:
-            options = {}
-        cls._endpoints.value = endpoints_from_options(options)
-        try:
-            result: pa.RecordBatch = super().process(  # type: ignore[misc]
-                batch=batch, init_call=init_call, **kwargs
-            )
-            return result
-        finally:
-            cls._endpoints.value = None
-
-    @classmethod
-    def endpoints(cls) -> Endpoints:
-        """Return the endpoints of the call in progress."""
-        value = getattr(cls._endpoints, "value", None)
-        return value if isinstance(value, Endpoints) else endpoints_from_options({})
-
-
 _VIN_DOC = "Vehicle Identification Number (17 characters; '*' wildcards allowed for partial VINs). NULL in, NULL out."
 
 
-class DecodeVin(_AttachAware, ScalarFunction):  # type: ignore[misc]  # see _AttachAware.process
+class DecodeVin(ScalarFunction):
     """``decode_vin(vin)``: decode VINs to a STRUCT of vehicle attributes."""
 
     class Meta:
@@ -326,13 +293,16 @@ class DecodeVin(_AttachAware, ScalarFunction):  # type: ignore[misc]  # see _Att
 
     @classmethod
     def compute(
-        cls, vin: Annotated[pa.StringArray, Param(doc=_VIN_DOC)]
+        cls,
+        vin: Annotated[pa.StringArray, Param(doc=_VIN_DOC)],
+        options: Annotated[dict[str, Any], Attach()],
     ) -> Annotated[pa.StructArray, Returns(arrow_type=VIN_STRUCT)]:
         """Decode every VIN in the column."""
-        return cast("pa.StructArray", pa.array(decode_column(cls.endpoints(), vin, None), type=VIN_STRUCT))
+        ep = endpoints_from_options(options)
+        return cast("pa.StructArray", pa.array(decode_column(ep, vin, None), type=VIN_STRUCT))
 
 
-class DecodeVinWithYear(_AttachAware, ScalarFunction):  # type: ignore[misc]  # see _AttachAware.process
+class DecodeVinWithYear(ScalarFunction):
     """``decode_vin(vin, model_year)``: decode VINs with a known model year."""
 
     class Meta:
@@ -346,9 +316,9 @@ class DecodeVinWithYear(_AttachAware, ScalarFunction):  # type: ignore[misc]  # 
                 category="vin",
                 keywords="vin, vin decoder, model year, vehicle identification number, nhtsa, vpic",
                 doc_llm=_DECODE_DOC_LLM
-                + " This overload also sends a constant `model_year` (`INTEGER`), which vPIC uses because VIN "
-                "position 10 repeats every 30 years. For a different year per row, use "
-                "`decode_vins((SELECT vin, model_year FROM ...))`.",
+                + " This overload also sends `model_year` (an integer, 1949-2100, constant or a column), which "
+                "vPIC uses because VIN position 10 repeats every 30 years: "
+                "`decode_vin(vin, model_year) FROM fleet` decodes each row with its own year.",
                 doc_md=(
                     "## decode_vin(vin, model_year)\n\n"
                     "Same `STRUCT` as `decode_vin(vin)`, with the model year passed to vPIC."
@@ -368,17 +338,17 @@ class DecodeVinWithYear(_AttachAware, ScalarFunction):  # type: ignore[misc]  # 
         cls,
         vin: Annotated[pa.StringArray, Param(doc=_VIN_DOC)],
         model_year: Annotated[
-            int,
-            ConstParam(
-                "Known model year (a constant, 1949-2100) applied to every VIN; NULL lets vPIC infer it.",
-                ge=1949,
-                le=2100,
-            ),
+            pa.Int64Array,
+            Param(doc="Known model year for each row's VIN; NULL lets vPIC infer it from the VIN."),
         ],
+        options: Annotated[dict[str, Any], Attach()],
     ) -> Annotated[pa.StructArray, Returns(arrow_type=VIN_STRUCT)]:
-        """Decode every VIN in the column with the given model year."""
-        years = pa.array([model_year] * len(vin), type=pa.int32())
-        return cast("pa.StructArray", pa.array(decode_column(cls.endpoints(), vin, years), type=VIN_STRUCT))
+        """Decode every VIN in the column with its row's model year."""
+        bad = sorted({y for y in model_year.to_pylist() if y is not None and not 1949 <= y <= 2100})
+        if bad:
+            raise ValueError(f"decode_vin: model_year must be between 1949 and 2100, got {bad[0]}")
+        ep = endpoints_from_options(options)
+        return cast("pa.StructArray", pa.array(decode_column(ep, vin, model_year), type=VIN_STRUCT))
 
 
 # ---------------------------------------------------------------- decode_vins (table in-out)

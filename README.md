@@ -83,9 +83,9 @@ GROUP BY component ORDER BY n DESC LIMIT 5;
 
 Notes:
 
-- Scalars have no named arguments in DuckDB, so `decode_vin(vin, model_year)` takes the model
-  year as a constant. For a different year per row, use
-  `decode_vins((SELECT vin, model_year FROM ...))`.
+- `decode_vin(vin, model_year)` takes the model year as a second argument, a constant or a
+  column, so `SELECT decode_vin(vin, model_year) FROM fleet` decodes each row with its own
+  year. Scalars have no named arguments in DuckDB.
 - NHTSA model names are usually the base model (`'ACCORD'`, `'F-150'`), not EPA's
   drive/trim names (`'Accord'`, `'F150 Pickup 2WD'`); join on `upper(base_model)` where they agree.
 - For EVs, EPA's `city_mpg`/`highway_mpg`/`combined_mpg` are MPGe. `-1` sentinels and empty

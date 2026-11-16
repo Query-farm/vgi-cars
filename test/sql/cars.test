@@ -165,6 +165,18 @@ SELECT cars.main.decode_vin('1HGCM82633A004352', 2003).error_code;
 ----
 0
 
+# model_year can be a column: each row decodes with its own year
+query TI
+SELECT d.make, d.model_year
+FROM (SELECT cars.main.decode_vin(v, y) AS d FROM (VALUES ('1HGCM82633A004352', 2003)) t(v, y));
+----
+HONDA	2003
+
+statement error
+SELECT cars.main.decode_vin('1HGCM82633A004352', 1800);
+----
+<REGEX>:.*model_year must be between 1949 and 2100.*
+
 query T
 SELECT cars.main.decode_vin(NULL::VARCHAR);
 ----
