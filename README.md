@@ -35,7 +35,7 @@ INSTALL vgi FROM query_farm;
 LOAD vgi FROM query_farm;
 
 ATTACH 'cars' (TYPE vgi,
-  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-cars@v0.1.0 vgi-cars-worker');
+  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-cars@v0.1.1 vgi-cars-worker');
 
 SELECT model, combined_mpg FROM cars.main.vehicles(year := 2024, make := 'toyota', model := 'prius');
 ```
