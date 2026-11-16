@@ -74,7 +74,7 @@ def _read_meta(cache_dir: Path) -> dict[str, Any]:
     try:
         loaded = json.loads((cache_dir / META_NAME).read_text())
         return loaded if isinstance(loaded, dict) else {}
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return {}
 
 
