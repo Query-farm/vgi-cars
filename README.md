@@ -28,6 +28,8 @@ ORDER BY v.combined_mpg DESC;
 
 **DuckDB 2.0:**
 
+vgi-cars 0.2.0 speaks VGI protocol 3.4, so it needs Haybarn 2.0.1 or newer (Haybarn 2.0.0 loads a 3.3 `vgi` extension that cannot attach it).
+
 ```sql
 SET allow_extension_repositories = 'allowed';
 CREATE EXTENSION REPOSITORY IF NOT EXISTS query_farm WITH PREFIX 'https://duckdb-extensions.query.farm';
@@ -35,7 +37,7 @@ INSTALL vgi FROM query_farm;
 LOAD vgi FROM query_farm;
 
 ATTACH 'cars' (TYPE vgi,
-  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-cars@v0.1.1 vgi-cars-worker');
+  LOCATION 'uvx --from git+https://github.com/Query-farm/vgi-cars@v0.2.0 vgi-cars-worker');
 
 SELECT model, combined_mpg FROM cars.main.vehicles(year := 2024, make := 'toyota', model := 'prius');
 ```
